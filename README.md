@@ -27,7 +27,7 @@ AiraCometes のリポジトリが Woodpecker CI で使う共通の部品。今�
    空きが `CACHE_MIN_FREE_GB`（30）を下回った分を、古い順に
 
 `CI_CACHE=off` のときは、復元も保存もしない。古い成果物に頼ったテストの通過を見つけるためである。月に1回の
-`cache-cold` の cron は、登録するときに cron の変数で `CI_CACHE=off` を渡す（`cache.sh` は cron の名前を見ない）。
+`cache-cold` の cron は、登録するときに cron の変数で `CI_CACHE=off` を渡す（`cache.sh` は cron の名前を見ない）。各リポジトリの YAML では、流したいワークフローの `when` の `cron:` に `cache-cold` を入れておく（入れないと、どのワークフローも流れない）。
 
 ### 使い方
 

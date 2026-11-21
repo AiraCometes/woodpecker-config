@@ -182,7 +182,7 @@ cmd_prune() {
       ((count > CACHE_KEEP)) && drop "${line#* }"
     done < <(find "$prefixdir" -mindepth 2 -maxdepth 2 -name stamp -printf '%T@ %h\n' | sort -rn)
   done < <(find "$CACHE_RW/$LAYOUT" -mindepth 3 -maxdepth 3 -type d)
-  # 2. Nothing older than CACHE_MAX_AGE_DAYS (neither stored nor used by a default branch push)
+  # 2. Nothing older than CACHE_MAX_AGE_DAYS (neither stored nor used by a push or cron on the default branch)
   while IFS= read -r dir; do
     drop "${dir%/stamp}"
   done < <(find "$CACHE_RW/$LAYOUT" -mindepth 5 -maxdepth 5 -name stamp -mtime "+$CACHE_MAX_AGE_DAYS")

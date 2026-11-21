@@ -9,7 +9,7 @@ setup() {
   export CACHE_RO="$STORE" CACHE_RW="$STORE" CACHE_STATE="$BATS_TEST_TMPDIR/state" CACHE_MIN_FREE_GB=0
   export CI_REPO=owner/repo CI_REPO_DEFAULT_BRANCH=main CI_PIPELINE_NUMBER=7
   export CI_PIPELINE_EVENT=push CI_COMMIT_BRANCH=main
-  unset CI_CACHE CI_PIPELINE_CRON
+  unset CI_CACHE
   WORK="$BATS_TEST_TMPDIR/work"
   mkdir -p "$WORK"
   cd "$WORK" || return
@@ -140,6 +140,20 @@ pipeline() {
   echo crate > "$BATS_TEST_TMPDIR/vol/cargo/a.crate"
   "$SCRIPT" save
   pipeline
+  run env CI_CACHE=off "$SCRIPT" restore cargo "$BATS_TEST_TMPDIR/vol/cargo" latest Cargo.lock
+  [[ "$output" == *'cargo: off'* ]]
+  [ ! -e "$BATS_TEST_TMPDIR/vol/cargo/a.crate" ]
+  run env CI_CACHE=off "$SCRIPT" save
+  [[ "$output" == *'nothing stored'* ]]
+}
+
+@test "CI_CACHE=off on a cron on the default branch (the cache-cold cron) restores and stores nothing" {
+  pipeline
+  "$SCRIPT" restore cargo "$BATS_TEST_TMPDIR/vol/cargo" latest Cargo.lock
+  echo crate > "$BATS_TEST_TMPDIR/vol/cargo/a.crate"
+  "$SCRIPT" save
+  pipeline
+  export CI_PIPELINE_EVENT=cron CI_COMMIT_BRANCH=main
   run env CI_CACHE=off "$SCRIPT" restore cargo "$BATS_TEST_TMPDIR/vol/cargo" latest Cargo.lock
   [[ "$output" == *'cargo: off'* ]]
   [ ! -e "$BATS_TEST_TMPDIR/vol/cargo/a.crate" ]

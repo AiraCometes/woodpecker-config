@@ -1,9 +1,11 @@
 #!/usr/bin/env bash
 # Dependency and tool caches for Woodpecker CI, kept on the agent's disk.
 #
-# Only a successful push to the default branch writes the cache (the `save` step, the one step that mounts the
-# cache writable). Every other pipeline only reads it: `restore` copies a snapshot into the pipeline's own
-# volume, and the copy is thrown away with the pipeline, so a pull request cannot change what main builds with.
+# Only a successful push or cron on the default branch writes the cache (the `save` step, the one step that
+# mounts the cache writable). Every other pipeline only reads it: `restore` copies a snapshot into the pipeline's
+# own volume, and the copy is thrown away with the pipeline, so a pull request cannot change what main builds with.
+# Which cron saves is decided by the `when` of each repository's cache-save step (`cron: nightly`); this script
+# never looks at the cron's name.
 #
 # usage:
 #   cache.sh restore NAME DIR MODE [INPUT...]
@@ -13,12 +15,13 @@
 #            latest  the snapshot whose key matches, else the newest one of NAME (downloads checked by lockfiles)
 #            rolling the newest one of NAME; save always stores a new one (sccache)
 #     INPUT  a file whose content goes into the key, or =TEXT for a literal (a version, an image tag)
-#   cache.sh save     store what restore recorded in this pipeline, then prune (default branch pushes only)
+#   cache.sh save     store what restore recorded in this pipeline, then prune (a push or a cron on the default
+#                     branch only)
 #
 # Settings (environment): CACHE_RO (default /cache, read-only mount), CACHE_RW (default /cache-rw, the save
-# step's writable mount), CACHE_STATE (default /woodpecker/cache-state), CI_CACHE=off or the cron job
-# `cache-cold` (nothing is restored or saved), CACHE_KEEP (2), CACHE_MAX_AGE_DAYS (30), CACHE_MAX_GB (50),
-# CACHE_SCCACHE_MAX_GB (20), CACHE_MIN_FREE_GB (30).
+# step's writable mount), CACHE_STATE (default /woodpecker/cache-state), CI_CACHE=off (nothing is restored or
+# saved; register the monthly `cache-cold` cron with this variable), CACHE_KEEP (2), CACHE_MAX_AGE_DAYS (30),
+# CACHE_MAX_GB (50), CACHE_SCCACHE_MAX_GB (20), CACHE_MIN_FREE_GB (30).
 set -euo pipefail
 shopt -s inherit_errexit
 
@@ -36,7 +39,7 @@ log() { printf '[cache] %s\n' "$*" >&2; }
 die() { printf '[cache] ERROR: %s\n' "$*" >&2; exit 2; }
 
 disabled() {
-  [[ "${CI_CACHE:-}" == off || "${CI_PIPELINE_CRON:-}" == cache-cold ]]
+  [[ "${CI_CACHE:-}" == off ]]
 }
 
 # owner/name -> owner__name, so a snapshot path never nests by accident
@@ -89,7 +92,7 @@ cmd_restore() {
   key=$(key_of "$name" "$@")
   mkdir -p "$dir"
   if disabled; then
-    log "$name: off (CI_CACHE=off or the cache-cold cron), starting empty"
+    log "$name: off (CI_CACHE=off), starting empty"
     record "$name" "$dir" "$mode" "$key" off
     return 0
   fi
@@ -114,8 +117,12 @@ cmd_restore() {
   record "$name" "$dir" "$mode" "$key" "$hit"
 }
 
-default_branch_push() {
-  [[ "${CI_PIPELINE_EVENT:-}" == push && -n "${CI_REPO_DEFAULT_BRANCH:-}" && "${CI_COMMIT_BRANCH:-}" == "$CI_REPO_DEFAULT_BRANCH" ]]
+default_branch_write() {
+  [[ -n "${CI_REPO_DEFAULT_BRANCH:-}" && "${CI_COMMIT_BRANCH:-}" == "$CI_REPO_DEFAULT_BRANCH" ]] || return 1
+  case "${CI_PIPELINE_EVENT:-}" in
+    push | cron) return 0 ;;
+    *) return 1 ;;
+  esac
 }
 
 store() { # NAME DIR MODE KEY HIT
@@ -203,11 +210,11 @@ cmd_prune() {
 
 cmd_save() {
   if disabled; then
-    log 'off (CI_CACHE=off or the cache-cold cron), nothing stored'
+    log 'off (CI_CACHE=off), nothing stored'
     return 0
   fi
-  if ! default_branch_push; then
-    log "only a push to the default branch stores the cache (this is ${CI_PIPELINE_EVENT:-?} on ${CI_COMMIT_BRANCH:-?}), nothing stored"
+  if ! default_branch_write; then
+    log "only a push or a cron on the default branch stores the cache (this is ${CI_PIPELINE_EVENT:-?} on ${CI_COMMIT_BRANCH:-?}), nothing stored"
     return 0
   fi
   [[ -d "$CACHE_RW" && -w "$CACHE_RW" ]] || die "$CACHE_RW is not a writable mount"

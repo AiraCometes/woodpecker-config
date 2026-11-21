@@ -4,10 +4,11 @@ AiraCometes のリポジトリが Woodpecker CI で使う共通の部品。今�
 
 ## cache.sh
 
-キャッシュはエージェントのディスク（`/var/lib/woodpecker-cache`）に置く。書き込めるのは、既定のブランチへの push が
-成功したときの `cache-save` の step だけ。ほかの step は読み取り専用でマウントし、`restore` がパイプラインの
-`/woodpecker` に写す。写しはパイプラインと一緒に捨てられるので、PR が main のキャッシュを変えることはできない
-（キャッシュポイズニングを防ぐ）。
+キャッシュはエージェントのディスク（`/var/lib/woodpecker-cache`）に置く。書き込めるのは、既定のブランチへの push か、
+既定のブランチでの cron が成功したときの `cache-save` の step だけ。どの cron が書くかは、各リポジトリの
+`cache-save` の `when`（`cron: nightly`）が決め、`cache.sh` は cron の名前を見ない。ほかの step は読み取り専用でマウントし、
+`restore` がパイプラインの `/woodpecker` に写す。写しはパイプラインと一緒に捨てられるので、PR が main のキャッシュを
+変えることはできない（キャッシュポイズニングを防ぐ）。
 
 | MODE | 使うもの | 例 |
 | --- | --- | --- |
@@ -25,20 +26,34 @@ AiraCometes のリポジトリが Woodpecker CI で使う共通の部品。今�
 3. sccache の合計が `CACHE_SCCACHE_MAX_GB`（20）を超えた分、全体が `CACHE_MAX_GB`（50）を超えた分と、
    空きが `CACHE_MIN_FREE_GB`（30）を下回った分を、古い順に
 
-`CI_CACHE=off` か、cron のジョブ名 `cache-cold`（月に1回）のときは、復元も保存もしない。古い成果物に頼った
-テストの通過を見つけるため。
+`CI_CACHE=off` のときは、復元も保存もしない。古い成果物に頼ったテストの通過を見つけるためである。月に1回の
+`cache-cold` の cron は、登録するときに cron の変数で `CI_CACHE=off` を渡す（`cache.sh` は cron の名前を見ない）。
 
 ### 使い方
 
 各リポジトリの `.woodpecker/*.yaml` で、コミットの SHA を固定して取得し、sha256 を確かめる。
 
 ```yaml
-- curl -fsSL https://raw.githubusercontent.com/AiraCometes/woodpecker-config/<SHA>/cache.sh -o /woodpecker/cache.sh
-- echo "<sha256>  /woodpecker/cache.sh" | sha256sum -c
-- bash /woodpecker/cache.sh restore cargo /woodpecker/cargo/registry latest Cargo.lock
-# …
-# 最後の step（when: push の main で、成功したとき。volumes は /var/lib/woodpecker-cache:/cache-rw）
-- bash /woodpecker/cache.sh save
+steps:
+  - name: restore
+    # …
+    commands:
+      - curl -fsSL https://raw.githubusercontent.com/AiraCometes/woodpecker-config/<SHA>/cache.sh -o /woodpecker/cache.sh
+      - echo "<sha256>  /woodpecker/cache.sh" | sha256sum -c
+      - bash /woodpecker/cache.sh restore cargo /woodpecker/cargo/registry latest Cargo.lock
+
+  # 最後の step。main への push か、main での nightly の cron が成功したときだけ保存する
+  - name: cache-save
+    volumes:
+      - /var/lib/woodpecker-cache:/cache-rw
+    when:
+      - event: push
+        branch: main
+      - event: cron
+        cron: nightly
+        branch: main
+    commands:
+      - bash /woodpecker/cache.sh save
 ```
 
 ほかの step は `/var/lib/woodpecker-cache:/cache:ro` をマウントする。volumes を使うには、リポジトリの設定の

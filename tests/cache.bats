@@ -1,5 +1,6 @@
 #!/usr/bin/env bats
-# cache.sh: restore copies a snapshot, only a default branch push stores, and prune keeps the cache bounded.
+# cache.sh: restore copies a snapshot, only a push or a cron on the default branch stores, and prune keeps the
+# cache bounded.
 
 setup() {
   SCRIPT="$BATS_TEST_DIRNAME/../cache.sh"
@@ -8,7 +9,7 @@ setup() {
   export CACHE_RO="$STORE" CACHE_RW="$STORE" CACHE_STATE="$BATS_TEST_TMPDIR/state" CACHE_MIN_FREE_GB=0
   export CI_REPO=owner/repo CI_REPO_DEFAULT_BRANCH=main CI_PIPELINE_NUMBER=7
   export CI_PIPELINE_EVENT=push CI_COMMIT_BRANCH=main
-  unset CI_CACHE CI_PIPELINE_CRON
+  unset CI_CACHE
   WORK="$BATS_TEST_TMPDIR/work"
   mkdir -p "$WORK"
   cd "$WORK" || return
@@ -49,13 +50,13 @@ pipeline() {
   echo poisoned > "$BATS_TEST_TMPDIR/vol/cargo/a.crate"
   run "$SCRIPT" save
   [ "$status" -eq 0 ]
-  [[ "$output" == *'only a push to the default branch stores the cache'* ]]
+  [[ "$output" == *'only a push or a cron on the default branch stores the cache'* ]]
   key="$("$SCRIPT" key cargo Cargo.lock)"
   [ "$(cat "$(prefix cargo)/$key/data/a.crate")" = crate ]
 }
 
-@test "a push to another branch and a manual run do not store" {
-  for case in 'push feature' 'manual main' 'cron main'; do
+@test "a push or a cron on another branch and a manual run do not store" {
+  for case in 'push feature' 'manual main' 'cron feature'; do
     pipeline
     export CI_PIPELINE_EVENT="${case% *}" CI_COMMIT_BRANCH="${case#* }"
     "$SCRIPT" restore cargo "$BATS_TEST_TMPDIR/vol/cargo" latest Cargo.lock
@@ -64,6 +65,22 @@ pipeline() {
     [[ "$output" == *'nothing stored'* ]]
   done
   [ ! -d "$STORE/v1" ]
+}
+
+@test "a cron on the default branch stores the snapshot that the next restore reads" {
+  pipeline
+  export CI_PIPELINE_EVENT=cron CI_COMMIT_BRANCH=main
+  run "$SCRIPT" restore cargo "$BATS_TEST_TMPDIR/vol/cargo" latest Cargo.lock
+  [ "$status" -eq 0 ]
+  [[ "$output" == *'cargo: no snapshot, starting empty'* ]]
+  echo crate > "$BATS_TEST_TMPDIR/vol/cargo/a.crate"
+  run "$SCRIPT" save
+  [ "$status" -eq 0 ]
+  [[ "$output" == *'cargo: stored'* ]]
+  pipeline
+  run "$SCRIPT" restore cargo "$BATS_TEST_TMPDIR/vol/cargo" latest Cargo.lock
+  [[ "$output" == *'cargo: restored exact'* ]]
+  [ "$(cat "$BATS_TEST_TMPDIR/vol/cargo/a.crate")" = crate ]
 }
 
 @test "a changed lockfile gets a new key: latest starts from the newest snapshot, exact starts empty" {
@@ -117,19 +134,31 @@ pipeline() {
   [ -f "$(prefix sccache-test)/$newest/data/two" ]
 }
 
-@test "CI_CACHE=off and the cache-cold cron restore and store nothing" {
+@test "CI_CACHE=off restores and stores nothing" {
   pipeline
   "$SCRIPT" restore cargo "$BATS_TEST_TMPDIR/vol/cargo" latest Cargo.lock
   echo crate > "$BATS_TEST_TMPDIR/vol/cargo/a.crate"
   "$SCRIPT" save
-  for setting in CI_CACHE=off CI_PIPELINE_CRON=cache-cold; do
-    pipeline
-    run env "$setting" "$SCRIPT" restore cargo "$BATS_TEST_TMPDIR/vol/cargo" latest Cargo.lock
-    [[ "$output" == *'cargo: off'* ]]
-    [ ! -e "$BATS_TEST_TMPDIR/vol/cargo/a.crate" ]
-    run env "$setting" "$SCRIPT" save
-    [[ "$output" == *'nothing stored'* ]]
-  done
+  pipeline
+  run env CI_CACHE=off "$SCRIPT" restore cargo "$BATS_TEST_TMPDIR/vol/cargo" latest Cargo.lock
+  [[ "$output" == *'cargo: off'* ]]
+  [ ! -e "$BATS_TEST_TMPDIR/vol/cargo/a.crate" ]
+  run env CI_CACHE=off "$SCRIPT" save
+  [[ "$output" == *'nothing stored'* ]]
+}
+
+@test "CI_CACHE=off on a cron on the default branch (the cache-cold cron) restores and stores nothing" {
+  pipeline
+  "$SCRIPT" restore cargo "$BATS_TEST_TMPDIR/vol/cargo" latest Cargo.lock
+  echo crate > "$BATS_TEST_TMPDIR/vol/cargo/a.crate"
+  "$SCRIPT" save
+  pipeline
+  export CI_PIPELINE_EVENT=cron CI_COMMIT_BRANCH=main
+  run env CI_CACHE=off "$SCRIPT" restore cargo "$BATS_TEST_TMPDIR/vol/cargo" latest Cargo.lock
+  [[ "$output" == *'cargo: off'* ]]
+  [ ! -e "$BATS_TEST_TMPDIR/vol/cargo/a.crate" ]
+  run env CI_CACHE=off "$SCRIPT" save
+  [[ "$output" == *'nothing stored'* ]]
 }
 
 @test "a folder another entry caches is left out of the outer snapshot" {

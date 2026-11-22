@@ -14,7 +14,7 @@ pwd > "$BATS_TEST_TMPDIR/cwd"
 case "$1 $2" in
   'pipeline show')
     [[ $* == *'owner/kura 15'* ]] || { echo "unexpected: $*" >&2; exit 1; }
-    printf 'P 15 pull_request success 1000 1060 1810\n'
+    printf 'P 15 pull_request success 1000 1060 2110\n'
     printf 'W test success 1810 2110\n'
     printf 'S clone success 1810 1813\n'
     printf 'S test success 1813 2110\n'

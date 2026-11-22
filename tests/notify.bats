@@ -1,6 +1,8 @@
 #!/usr/bin/env bats
 # notify.sh: a failed cron pipeline opens one GitHub issue, and the token never reaches the command line or the log.
 
+bats_require_minimum_version 1.5.0
+
 setup() {
   SCRIPT="$BATS_TEST_DIRNAME/../notify.sh"
   BIN="$BATS_TEST_TMPDIR/bin"
@@ -40,9 +42,9 @@ FAKE
 @test "the token goes in a headers file, never on the command line or in the output" {
   run "$SCRIPT"
   [ "$status" -eq 0 ]
-  ! grep -q 'secret-token-value' "$CALLS/args"
   [[ "$output" != *'secret-token-value'* ]]
   grep -qx 'Authorization: Bearer secret-token-value' "$CALLS/headers"
+  run ! grep -q 'secret-token-value' "$CALLS/args"
 }
 
 @test "a cold-cache run says so in the issue, since the cron's name is not available to the step" {

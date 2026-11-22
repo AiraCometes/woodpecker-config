@@ -61,6 +61,7 @@ response=$(printf '{"title": %s, "body": %s}' "$(json "$title")" "$(json "$body"
     --data-binary @- \
     "$GITHUB_API/repos/$CI_REPO/issues")
 
-# The first html_url of an issue is the issue's own (the user's and the repository's come later)
-url=$(grep -o '"html_url": *"[^"]*"' <<< "$response" | head -1 | sed 's/.*"\([^"]*\)"$/\1/')
+# The first html_url of an issue is the issue's own (the user's and the repository's come later). The issue is
+# open once curl succeeds, so an answer without it is not a failure
+url=$(grep -o '"html_url": *"[^"]*"' <<< "$response" | sed -n '1s/.*"\([^"]*\)"$/\1/p' || true)
 log "opened ${url:-an issue in $CI_REPO}"

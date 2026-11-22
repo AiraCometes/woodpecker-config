@@ -104,8 +104,17 @@ Woodpecker（3.20.1 の `server/model/task.go` の `ShouldRun`）は、`status: 
 依存先が1つも成功しなかったときにしか流さない（`gate` が通って `fuzz` だけ落ちた夜は知らせが来ない）。
 `[success, failure]` にすれば毎回流れるが、依存先の結果は step に渡らないので、落ちたかどうかが分からない。
 
-この組み方は、このリポジトリの `selftest.yaml` で確かめる（手動実行で、変数 `NOTIFY_SELFTEST` を `1` にする。
-わざと落ちる step のあとの知らせの step が流れ、このリポジトリに Issue が1つできる）。
+この組み方は、このリポジトリの `selftest.yaml` で確かめる。わざと落ちる step のあとの知らせの step が流れ、
+このリポジトリに Issue が1つできる（確かめたら閉じる）。
+
+GitHub は手動実行の結果もそのコミットのチェックとして付けるので、PR のブランチで流すと、PR に落ちたチェック
+（`ci/woodpecker/manual/selftest`）が残る。確かめたいコミットから別のブランチを作って、そこで流す。
+
+```bash
+git push origin HEAD:refs/heads/selftest/notify
+cd /tmp && woodpecker-cli pipeline create --branch selftest/notify --var NOTIFY_SELFTEST=1 AiraCometes/woodpecker-config
+git push origin --delete selftest/notify  # 確かめたら消す
+```
 
 ## ci-times.sh
 

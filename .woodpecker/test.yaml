@@ -1,4 +1,4 @@
-# cache.sh の確かめ（Bats と ShellCheck）。キャッシュは使わない（確かめる側が確かめられる仕組みに頼らないため）。
+# cache.sh・notify.sh・ci-times.sh の確かめ（Bats と ShellCheck）。キャッシュは使わない（確かめる側が確かめられる仕組みに頼らないため）。
 when:
   - event: [push, pull_request]
     branch: main
@@ -11,5 +11,5 @@ steps:
       DEBIAN_FRONTEND: noninteractive
     commands:
       - apt-get update -qq && apt-get install -y -qq --no-install-recommends bats shellcheck > /dev/null
-      - shellcheck -S warning cache.sh tests/cache.bats
+      - shellcheck -S warning cache.sh notify.sh ci-times.sh tests/*.bats
       - bats tests

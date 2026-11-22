@@ -1,6 +1,12 @@
 # woodpecker-config
 
-AiraCometes のリポジトリが Woodpecker CI で使う共通の部品。今は依存とツールのキャッシュ（`cache.sh`）だけ。
+AiraCometes のリポジトリが Woodpecker CI で使う共通の部品。
+
+| ファイル | 使う所 | すること |
+| --- | --- | --- |
+| `cache.sh` | CI の step | 依存とツールのキャッシュ |
+| `notify.sh` | CI の step | 夜の cron が落ちたら、そのリポジトリに Issue を作る |
+| `ci-times.sh` | 手元 | パイプラインの段ごとの時間、エージェントを待った時間、その間に流れたほかのリポジトリ |
 
 ## cache.sh
 
@@ -59,9 +65,82 @@ steps:
 ほかの step は `/var/lib/woodpecker-cache:/cache:ro` をマウントする。volumes を使うには、リポジトリの設定の
 Trusted → Volumes をオンにする。
 
+## notify.sh
+
+夜の cron（`nightly`・`cache-cold`）は PR のチェックに出ないので、落ちても誰かがサーバーを見るまで分からない。
+`notify.sh` は、落ちた cron のパイプラインごとに、そのリポジトリに Issue を1つ作る（GitHub の通知で届く）。
+
+Woodpecker は、step に cron の名前も、落ちたワークフローの一覧も渡さない。そのため Issue には、パイプラインへの
+リンク・ブランチ・コミットを書く。`CI_CACHE=off` のときは、キャッシュを使わない cron（`cache-cold`）だったことも書く。
+
+トークンは、Issues: write だけの fine-grained token を、Woodpecker の secret（`github_issue_token`）に入れて渡す。
+`notify.sh` はトークンをヘッダーのファイルに書いて curl に渡すので、コマンドラインにもログにも出ない。
+`GITHUB_TOKEN` が無いときは落ちるので、secret の登録漏れは知らせのワークフローの失敗として見える。
+
+### 使い方
+
+夜に流すワークフローを全部 `depends_on` に並べた、知らせ用のワークフローを1つ置く（ワークフローごとに step を
+足すと、一晩に Issue が幾つもできる）。その回に流れないワークフロー（`cache-cold` の夜の `asan` など）は
+`optional: true` にする（そうしないと、知らせのワークフローごと外される）。
+
+```yaml
+# .woodpecker/notify.yaml
+when:
+  - event: cron
+    status: [failure]
+
+depends_on:
+  - name: gate
+    optional: true
+  - name: test
+    optional: true
+  # …夜に流すワークフローを全部
+
+skip_clone: true
+
+steps:
+  - name: notify
+    image: jdxcode/mise:2026.11.2-debian
+    environment:
+      GITHUB_TOKEN:
+        from_secret: github_issue_token
+    commands:
+      - curl -fsSL https://raw.githubusercontent.com/AiraCometes/woodpecker-config/<SHA>/notify.sh -o /tmp/notify.sh
+      - echo "<sha256>  /tmp/notify.sh" | sha256sum -c
+      - bash /tmp/notify.sh
+```
+
+`depends_on` と `status: [failure]` の組み合わせがその通りに動くことは、このリポジトリの `selftest-*.yaml` で
+確かめる（手動実行で、変数 `NOTIFY_SELFTEST` を `1` にする。わざと落ちるワークフローと、それを待って
+`notify.sh` を流すワークフローが走り、このリポジトリに Issue が1つできる）。
+
+## ci-times.sh
+
+手元で、パイプラインの時間を見る。エージェントはワークフローを1つずつしか流さないので、長い待ちはたいてい、
+ほかのリポジトリのパイプラインである。
+
+```bash
+./ci-times.sh AiraCometes/kura 15
+```
+
+```text
+pipeline 15 (pull_request, success): 19m34s from creation to finish
+gate  waited 1m11s  ran 2m34s
+  clone 3s
+  setup 1m0s
+  gate 1m28s
+  sccache-stats 1s
+test  waited 10m12s  ran 5m37s
+  ...
+other pipelines on the agent meanwhile (13:40:55-13:59:18):
+  AiraCometes/curio-media #13 (push) 13:43:30-13:53:40
+```
+
+woodpecker-cli は今いるフォルダーの `.env` を読もうとするので、`/tmp` から流す。
+
 ## 確かめ方
 
 ```bash
-shellcheck -S warning cache.sh tests/cache.bats
+shellcheck -S warning cache.sh notify.sh ci-times.sh tests/*.bats
 bats tests
 ```

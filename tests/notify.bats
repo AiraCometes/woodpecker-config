@@ -18,6 +18,7 @@ for a in "$@"; do
   prev=$a
 done
 cat > "$CALLS/body"
+[[ ${FAKE_CURL_EMPTY:-} == 1 ]] && { echo "{}"; exit 0; }
 [[ ${FAKE_CURL_FAIL:-} == 1 ]] && { echo 'curl: (22) The requested URL returned error: 401' >&2; exit 22; }
 printf '{"url": "https://api.github.com/repos/owner/repo/issues/9", "repository_url": "https://api.github.com/repos/owner/repo", "html_url": "https://github.com/owner/repo/issues/9", "number": 9}\n'
 FAKE
@@ -25,7 +26,7 @@ FAKE
   export PATH="$BIN:$PATH" CALLS
   export GITHUB_TOKEN=secret-token-value CI_REPO=owner/repo CI_PIPELINE_NUMBER=42 CI_PIPELINE_EVENT=cron
   export CI_PIPELINE_URL=https://ci.example/repos/3/pipeline/42 CI_COMMIT_SHA=0123456789abcdef CI_COMMIT_BRANCH=main
-  unset CI_CACHE GITHUB_API FAKE_CURL_FAIL
+  unset CI_CACHE GITHUB_API FAKE_CURL_FAIL FAKE_CURL_EMPTY
 }
 
 @test "a failed cron pipeline opens an issue in its own repository with a link to the pipeline" {
@@ -87,4 +88,11 @@ FAKE
   run "$SCRIPT"
   [ "$status" -ne 0 ]
   [[ "$output" != *'secret-token-value'* ]]
+}
+
+@test "an answer without the issue's link still succeeds, since the issue was opened" {
+  export FAKE_CURL_EMPTY=1
+  run "$SCRIPT"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *'opened an issue in owner/repo'* ]]
 }

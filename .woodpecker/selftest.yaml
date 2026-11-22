@@ -1,0 +1,23 @@
+# notify.sh の組み方（README の「使い方」）の自己テスト。手動実行で NOTIFY_SELFTEST=1 のときだけ流れる。
+# fail がわざと落ち、そのあとの notify（status: [failure]）が流れて、このリポジトリに Issue を1つ作る
+when:
+  - event: manual
+    evaluate: 'NOTIFY_SELFTEST == "1"'
+
+steps:
+  - name: fail
+    image: jdxcode/mise:2026.11.2-debian
+    commands:
+      - echo 'failing on purpose, so the notify step runs'
+      - exit 1
+
+  - name: notify
+    image: jdxcode/mise:2026.11.2-debian
+    environment:
+      GITHUB_TOKEN:
+        from_secret: github_issue_token
+    when:
+      - event: manual
+        status: [failure]
+    commands:
+      - bash notify.sh

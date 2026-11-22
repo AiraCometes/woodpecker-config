@@ -34,9 +34,9 @@ read -r _ p_number p_event p_status p_created p_started p_finished < <(grep '^P 
 ((p_finished > 0)) || p_finished=$now
 printf 'pipeline %s (%s, %s): %s from creation to finish\n' "$p_number" "$p_event" "$p_status" "$(dur $((p_finished - p_created)))"
 
-# Order the workflows by when the agent started them (the server lists them by id): prefix every line with its
-# workflow's start and its position, sort, and drop the prefix
-ordered=$(awk '$1 == "W" { start = $4 } $1 == "W" || $1 == "S" { print start, NR, $0 }' <<< "$show" | sort -n -k1,1 -k2,2 | cut -d' ' -f3-)
+# Order the workflows by when the agent started them (the server lists them by id), the ones that never started
+# last: prefix every line with its workflow's start and its position, sort, and drop the prefix
+ordered=$(awk '$1 == "W" { start = $4 > 0 ? $4 : 9999999999 } $1 == "W" || $1 == "S" { print start, NR, $0 }' <<< "$show" | sort -n -k1,1 -k2,2 | cut -d' ' -f3-)
 
 prev=$p_created
 while read -r kind name state started stopped; do

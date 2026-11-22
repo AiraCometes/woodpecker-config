@@ -1,15 +1,17 @@
 #!/usr/bin/env bash
-# Open a GitHub issue when a cron pipeline fails, so a failed night is seen without anyone checking the server.
+# Open a GitHub issue when a workflow of a cron pipeline fails, so a failed night is seen without anyone checking
+# the server.
 #
-# Run it from one workflow per repository that depends on every cron workflow and runs only on failure (see the
-# README). Woodpecker gives a step neither the cron's name nor the list of failed workflows, so the issue links to
-# the pipeline, where both are shown.
+# Run it from the last step of each workflow, with `status: [failure]` (see the README). A separate workflow that
+# depends on the others cannot do it: with `status: [failure]` alone, Woodpecker runs it only when none of its
+# dependencies succeeded, and it gives a step no word of how the dependencies ended. A step is not told the cron's
+# name either, so the issue links to the pipeline.
 #
 # usage: notify.sh
 #
 # Settings (environment): GITHUB_TOKEN (required; a fine-grained token with Issues: write, from a Woodpecker
 # secret), GITHUB_API (default https://api.github.com), and Woodpecker's CI_REPO, CI_PIPELINE_NUMBER,
-# CI_PIPELINE_URL, CI_COMMIT_SHA, CI_COMMIT_BRANCH and CI_CACHE.
+# CI_PIPELINE_URL, CI_PIPELINE_EVENT, CI_WORKFLOW_NAME, CI_COMMIT_SHA, CI_COMMIT_BRANCH and CI_CACHE.
 set -euo pipefail
 shopt -s inherit_errexit
 
@@ -21,6 +23,7 @@ die() { printf '[notify] ERROR: %s\n' "$*" >&2; exit 2; }
 [[ -n ${GITHUB_TOKEN:-} ]] || die 'GITHUB_TOKEN is not set (register the secret and pass it with from_secret)'
 [[ -n ${CI_REPO:-} ]] || die 'CI_REPO is not set (run this from a Woodpecker step)'
 [[ -n ${CI_PIPELINE_NUMBER:-} ]] || die 'CI_PIPELINE_NUMBER is not set (run this from a Woodpecker step)'
+[[ -n ${CI_WORKFLOW_NAME:-} ]] || die 'CI_WORKFLOW_NAME is not set (run this from a Woodpecker step)'
 
 # A JSON string: backslash first, then quotes and the control characters the text can hold
 json() {
@@ -33,8 +36,8 @@ json() {
   printf '"%s"' "$s"
 }
 
-title="CI: ${CI_PIPELINE_EVENT:-cron} のパイプライン #${CI_PIPELINE_NUMBER} が落ちた"
-body="${CI_PIPELINE_EVENT:-cron} のパイプラインが落ちました。どのワークフローと段が落ちたかは、パイプラインで見てください。
+title="CI: ${CI_PIPELINE_EVENT:-cron} のパイプライン #${CI_PIPELINE_NUMBER} の ${CI_WORKFLOW_NAME} が落ちた"
+body="${CI_PIPELINE_EVENT:-cron} のパイプラインで、ワークフロー ${CI_WORKFLOW_NAME} が落ちました。どの段が落ちたかは、パイプラインで見てください。
 
 - パイプライン: ${CI_PIPELINE_URL:-（CI_PIPELINE_URL が無い）}
 - ブランチ: ${CI_COMMIT_BRANCH:-?}

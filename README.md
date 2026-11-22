@@ -68,51 +68,44 @@ Trusted → Volumes をオンにする。
 ## notify.sh
 
 夜の cron（`nightly`・`cache-cold`）は PR のチェックに出ないので、落ちても誰かがサーバーを見るまで分からない。
-`notify.sh` は、落ちた cron のパイプラインごとに、そのリポジトリに Issue を1つ作る（GitHub の通知で届く）。
+`notify.sh` は、cron のパイプラインでワークフローが落ちたら、そのリポジトリに Issue を作る（GitHub の通知で届く）。
+題は「CI: cron のパイプライン #N の fuzz が落ちた」のように、落ちたワークフローの名前を書く。
 
-Woodpecker は、step に cron の名前も、落ちたワークフローの一覧も渡さない。そのため Issue には、パイプラインへの
-リンク・ブランチ・コミットを書く。`CI_CACHE=off` のときは、キャッシュを使わない cron（`cache-cold`）だったことも書く。
+Woodpecker は step に cron の名前を渡さない。そのため Issue には、パイプラインへのリンク・ブランチ・コミットを書く。
+`CI_CACHE=off` のときは、キャッシュを使わない cron（`cache-cold`）だったことも書く。
 
-トークンは、Issues: write だけの fine-grained token を、Woodpecker の secret（`github_issue_token`）に入れて渡す。
-`notify.sh` はトークンをヘッダーのファイルに書いて curl に渡すので、コマンドラインにもログにも出ない。
-`GITHUB_TOKEN` が無いときは落ちるので、secret の登録漏れは知らせのワークフローの失敗として見える。
+トークンは、Issues: write だけの fine-grained token を、Woodpecker の secret（`github_issue_token`、イベントは cron と
+manual）に入れて渡す。`notify.sh` はトークンをヘッダーのファイルに書いて curl に渡すので、コマンドラインにもログにも
+出ない。`GITHUB_TOKEN` が無いときは落ちるので、secret の登録漏れは知らせの step の失敗として見える。
 
 ### 使い方
 
-夜に流すワークフローを全部 `depends_on` に並べた、知らせ用のワークフローを1つ置く（ワークフローごとに step を
-足すと、一晩に Issue が幾つもできる）。その回に流れないワークフロー（`cache-cold` の夜の `asan` など）は
-`optional: true` にする（そうしないと、知らせのワークフローごと外される）。
+夜に流すワークフローごとに、最後の step として足す。`status: [failure]` の step は、そのワークフローの前の step が
+落ちたときだけ流れる。一晩に落ちたワークフローの数だけ Issue ができる。
 
 ```yaml
-# .woodpecker/notify.yaml
-when:
-  - event: cron
-    status: [failure]
-
-depends_on:
-  - name: gate
-    optional: true
-  - name: test
-    optional: true
-  # …夜に流すワークフローを全部
-
-skip_clone: true
-
-steps:
+  # 最後の step。cron で、このワークフローが落ちたときだけ Issue を作る
   - name: notify
     image: jdxcode/mise:2026.11.2-debian
     environment:
       GITHUB_TOKEN:
         from_secret: github_issue_token
+    when:
+      - event: cron
+        status: [failure]
     commands:
       - curl -fsSL https://raw.githubusercontent.com/AiraCometes/woodpecker-config/<SHA>/notify.sh -o /tmp/notify.sh
       - echo "<sha256>  /tmp/notify.sh" | sha256sum -c
       - bash /tmp/notify.sh
 ```
 
-`depends_on` と `status: [failure]` の組み合わせがその通りに動くことは、このリポジトリの `selftest-*.yaml` で
-確かめる（手動実行で、変数 `NOTIFY_SELFTEST` を `1` にする。わざと落ちるワークフローと、それを待って
-`notify.sh` を流すワークフローが走り、このリポジトリに Issue が1つできる）。
+ほかのワークフローを `depends_on` で待ち、`status: [failure]` で流れる知らせのワークフローを1つ置く形は使えない。
+Woodpecker（3.20.1 の `server/model/task.go` の `ShouldRun`）は、`status: [failure]` だけのワークフローを、
+依存先が1つも成功しなかったときにしか流さない（`gate` が通って `fuzz` だけ落ちた夜は知らせが来ない）。
+`[success, failure]` にすれば毎回流れるが、依存先の結果は step に渡らないので、落ちたかどうかが分からない。
+
+この組み方は、このリポジトリの `selftest.yaml` で確かめる（手動実行で、変数 `NOTIFY_SELFTEST` を `1` にする。
+わざと落ちる step のあとの知らせの step が流れ、このリポジトリに Issue が1つできる）。
 
 ## ci-times.sh
 

@@ -15,6 +15,7 @@ case "$1 $2" in
   'pipeline show')
     [[ $* == *'owner/kura 15'* ]] || { echo "unexpected: $*" >&2; exit 1; }
     printf 'P 15 pull_request success 1000 1060 2110\n'
+    printf 'W notify skipped 0 0\n'
     printf 'W test success 1810 2110\n'
     printf 'S clone success 1810 1813\n'
     printf 'S test success 1813 2110\n'
@@ -45,8 +46,9 @@ FAKE
   [[ "$output" == *'pipeline 15 (pull_request, success): 18m30s from creation to finish'* ]]
   [[ "$output" == *'gate  waited 1m0s  ran 2m30s'* ]]
   [[ "$output" == *'test  waited 10m0s  ran 5m0s'* ]]
-  # gate ran first, so it comes first even though the server listed test first
-  [[ "$output" == *gate*test* ]]
+  # gate ran first, so it comes first even though the server listed test first; a workflow that never started
+  # comes last
+  [[ "$output" == *gate*test*'notify  not started (skipped)'* ]]
 }
 
 @test "each step shows its own run time under its workflow" {

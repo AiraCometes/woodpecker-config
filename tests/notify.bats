@@ -1,5 +1,6 @@
 #!/usr/bin/env bats
-# notify.sh: a failed cron pipeline opens one GitHub issue, and the token never reaches the command line or the log.
+# notify.sh: a failed workflow of a cron pipeline opens a GitHub issue naming it, and the token never reaches the
+# command line or the log.
 
 bats_require_minimum_version 1.5.0
 
@@ -26,16 +27,17 @@ FAKE
   export PATH="$BIN:$PATH" CALLS
   export GITHUB_TOKEN=secret-token-value CI_REPO=owner/repo CI_PIPELINE_NUMBER=42 CI_PIPELINE_EVENT=cron
   export CI_PIPELINE_URL=https://ci.example/repos/3/pipeline/42 CI_COMMIT_SHA=0123456789abcdef CI_COMMIT_BRANCH=main
+  export CI_WORKFLOW_NAME=fuzz
   unset CI_CACHE GITHUB_API FAKE_CURL_FAIL FAKE_CURL_EMPTY
 }
 
-@test "a failed cron pipeline opens an issue in its own repository with a link to the pipeline" {
+@test "a failed workflow opens an issue in its own repository, naming the workflow and linking the pipeline" {
   run "$SCRIPT"
   [ "$status" -eq 0 ]
   [[ "$output" == *'opened https://github.com/owner/repo/issues/9'* ]]
   grep -qx 'https://api.github.com/repos/owner/repo/issues' "$CALLS/args"
   grep -qx -- '-X' "$CALLS/args" && grep -qx 'POST' "$CALLS/args"
-  grep -q '"title": *"CI: cron のパイプライン #42 が落ちた"' "$CALLS/body"
+  grep -q '"title": *"CI: cron のパイプライン #42 の fuzz が落ちた"' "$CALLS/body"
   grep -q 'https://ci.example/repos/3/pipeline/42' "$CALLS/body"
   grep -q '0123456789abcdef' "$CALLS/body"
 }
@@ -81,6 +83,11 @@ FAKE
   run "$SCRIPT"
   [ "$status" -eq 2 ]
   [[ "$output" == *'CI_REPO'* ]]
+  export CI_REPO=owner/repo
+  unset CI_WORKFLOW_NAME
+  run "$SCRIPT"
+  [ "$status" -eq 2 ]
+  [[ "$output" == *'CI_WORKFLOW_NAME'* ]]
 }
 
 @test "an API error fails the step" {
